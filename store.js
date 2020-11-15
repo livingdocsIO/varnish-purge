@@ -1,14 +1,11 @@
-const path = require('path')
 const delay = require('util').promisify(setTimeout)
-const protobuf = require('protobufjs')
+const Axios = require('axios')
 
-module.exports = async function createStore (opts) {
+module.exports = async function createStore (opts, database) {
   const {log, eventPollInterval} = opts
-  const publicationEvent = await PublicationEvent()
-  const storagePath = path.resolve(opts.storagePath || './', `project-${opts.projectId}.db`)
-  const store = require('flumelog-aligned-offset')(storagePath, {codec: publicationEvent})
 
-  const axios = require('axios').create({
+  const axios = Axios.create({
+    timeout: 20000,
     baseURL: opts.apiBaseUrl,
     headers: {
       'User-Agent': 'livingdocs-ban',
@@ -16,93 +13,79 @@ module.exports = async function createStore (opts) {
     }
   })
 
-  async function getHead () {
-    if (!store.length) return
+  const contentTypeIds = new Map()
+  function getContentType (m) {
+    const key = `${m.projectId}:${m.channelId}:${m.documentType}:${m.contentType}`
+    const contentTypeId = contentTypeIds.get(key)
+    if (contentTypeId) return contentTypeId
 
-    return new Promise((resolve, reject) => {
-      store
-        .stream({seqs: false, reverse: true})
-        .pipe({
-          head: undefined,
-          paused: false,
-          write (v) {
-            this.head = v
-            this.paused = true
-            this.end()
-          },
-          end (err) {
-            this.ended = err || true
-            if (err) return reject(err)
-            resolve(this.head)
-          }
-        })
+    const promise = getContentTypeFromDb(m)
+    contentTypeIds.set(key, promise)
+    return promise.then((id) => {
+      contentTypeIds.set(key, id)
+      return id
     })
   }
 
-  function follow ({since} = {}) {
-    const sinceTimestamp = (since && since.getTime) ? since.getTime() : (since || Date.now())
-    return {
-      [Symbol.asyncIterator]() {
-        // The event loop doesn't stay open without that
-        const interval = setInterval(() => {}, 10000)
-        const messages = []
-        let promise
-        let err
-        store.stream({seqs: false, live: true})
-          .pipe({
-            write (value) {
-              if (value.ts < sinceTimestamp) return
-              if (promise) {
-                promise.resolve({done: false, value})
-                promise = undefined
-              } else {
-                messages.push(value)
-              }
-            },
-            end (_err) {
-              clearInterval(interval)
-              if (promise) {
-                promise.reject(err)
-                promise = undefined
-              } else {
-                err = _err
-              }
-            }
-          })
+  async function getContentTypeFromDb (message) {
+    const res = await database.write
+      .get(`
+        SELECT id FROM document_content_types
+        WHERE project_id = ? AND channel_id = ? AND document_type_handle = ? AND content_type_handle = ?
+      `, message.projectId, message.channelId, message.documentType, message.contentType)
 
-        return {
-          async next() {
-            if (err) throw err
-            const value = messages.shift()
-            if (value) return {done: false, value}
-            return new Promise((resolve, reject) => { promise = {resolve, reject} })
-          }
-        }
-      }
+    if (res) return res.id
+
+    const {lastID} = await database.write.run(`
+      INSERT INTO document_content_types (project_id, channel_id, document_type_handle, content_type_handle)
+      VALUES (?, ?, ?, ?)
+    `, message.projectId, message.channelId, message.documentType, message.contentType)
+
+    return lastID
+  }
+
+  const eventTypeIds = {publish: 1, update: 2, unpublish: 3}
+  async function appendMessages (messages) {
+    let str = ''
+    let count = 0
+    for (const msg of messages) {
+      // A message might not have a valid structure
+      if (typeof msg.id !== 'number' || typeof msg.documentId !== 'number') continue
+
+      // A message might have an unsupported event name
+      let eventTypeId = eventTypeIds[msg.eventType]
+      if (!eventTypeId) continue
+
+      let ctId = getContentType(msg)
+
+      // If we don't have a content type id, the message was malformed
+      if (!ctId) continue
+
+      // We might need to wait until a new content type id is persisted
+      if (ctId.then) ctId = await ctId
+
+      str += `, (${msg.id}, ${eventTypeId}, ${ctId}, ${msg.documentId}, ${Date.parse(msg.createdAt) || 0})` // eslint-disable-line max-len
+      count += 1
     }
+
+    if (count === 0) return 0
+
+    // We can't use a parameterized query as it's limited to too 1000 entries.
+    await database.write.run(`
+      INSERT INTO document_publication_events (idx, event_type, content_type_id, document_id, ts)
+      VALUES ${str.replace(', ', '')}
+    `)
+    return count
   }
 
-  let readyPromise
-  function onReady () {
-    if (readyPromise) return readyPromise
-    readyPromise = new Promise((resolve, reject) => {
-      store.onReady((err) => err ? reject(err) : resolve())
-    })
-    return readyPromise
-  }
-
-  function appendMessages (messages) {
-    return new Promise((resolve, reject) => {
-      store.append(messages, (err, res) => err ? reject(err) : resolve(res))
-    })
-  }
-
+  const cancelToken = Axios.CancelToken.source()
+  let delayTimeout
   async function start () {
-    await onReady()
-    let after = (await getHead() || {}).id || 0
-    while (true) {
+    let after = await api.head
+    while (!api.stopped) {
       try {
         const res = await axios({
+          cancelToken: cancelToken.token,
           method: 'GET',
           url: `/api/v1/publicationEvents?after=${after}&limit=1000`
         })
@@ -115,43 +98,37 @@ module.exports = async function createStore (opts) {
           continue
         }
       } catch (err) {
+        if (Axios.isCancel(err)) return
         log.error({
           err: {message: err.message, stack: err.stack},
           data: err.response && err.response.data
         }, 'Feed fetch error.')
       }
 
-      await delay(eventPollInterval)
+      await new Promise((resolve) => { delayTimeout = setTimeout(resolve, eventPollInterval) })
     }
   }
 
-  return {
+  function stop () {
+    api.stopped = true
+    clearTimeout(delayTimeout)
+    cancelToken.cancel()
+  }
+
+  const api = {
+    stopped: false,
     start,
-    get ready  () { return onReady() },
-    get head () { return getHead() },
-    follow
-  }
-}
-
-async function PublicationEvent () {
-  const {EVENT, DOCUMENTTYPE, PublicationEvent} = await protobuf.load('message.proto')
-
-  return {
-    encode (message) {
-      return PublicationEvent.encode({
-        id: message.id,
-        ts: Date.parse(message.createdAt),
-        event: EVENT[message.eventType],
-        documentId: message.documentId,
-        documentType: DOCUMENTTYPE[message.documentType],
-        contentType: message.contentType
-      }).finish()
-    },
-    decode (buffer) {
-      const message = PublicationEvent.decode(buffer)
-      message.event = EVENT[message.event]
-      message.documentType = DOCUMENTTYPE[message.documentType]
-      return message
+    stop,
+    get head () {
+      return database.write.get(`
+        SELECT * FROM document_publication_events e
+        JOIN document_content_types t ON (e.content_type_id = t.id)
+        WHERE t.project_id = ?
+        ORDER BY e.idx desc
+        LIMIT 1
+      `, opts.projectId).then((res) => (res && res.idx) || 0)
     }
   }
+
+  return api
 }

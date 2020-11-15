@@ -1,10 +1,10 @@
-const Denque = require('denque')
-
 // Queue that doesn't have the buggy drain behavior of async/queue
 // And it doesn't support promises on `.push()`
+// If you need promise handling when pushing objects, just create them yourself
+// and resolve them in the job
 module.exports = function fastAsyncQueue (opts) {
-  const queue = new Denque()
-  const unusedWorkers = new Denque()
+  const queue = []
+  const unusedWorkers = []
 
   const processFn = opts.process
   const catchFn = opts.catch

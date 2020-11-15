@@ -5,12 +5,12 @@
   "main": "index.js",
   "dependencies": {
     "axios": "^0.21.0",
-    "denque": "^1.4.1",
-    "flumelog-aligned-offset": "^1.1.4",
+    "fs-extra": "^9.0.1",
     "jsonwebtoken": "^8.5.1",
     "pino": "^6.7.0",
     "prexit": "0.0.5",
-    "protobufjs": "^6.10.1"
+    "sqlite": "^4.0.17",
+    "sqlite3": "^5.0.0"
   },
   "devDependencies": {},
   "scripts": {
