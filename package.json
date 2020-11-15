@@ -1,0 +1,21 @@
+{
+  "name": "@livingdocsIO/varnish-purge",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^0.21.0",
+    "denque": "^1.4.1",
+    "flumelog-aligned-offset": "^1.1.4",
+    "jsonwebtoken": "^8.5.1",
+    "pino": "^6.7.0",
+    "prexit": "0.0.5",
+    "protobufjs": "^6.10.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}

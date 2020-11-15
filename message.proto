@@ -1,0 +1,24 @@
+syntax = "proto3";
+import "google/protobuf/timestamp.proto";
+
+enum EVENT {
+  none = 0;
+  publish = 1;
+  update = 2;
+  unpublish = 3;
+}
+
+enum DOCUMENTTYPE {
+  none = 0;
+  page = 1;
+  article = 2;
+}
+
+message PublicationEvent {
+  required int32 id = 1;
+  required double ts = 2;
+  required EVENT event = 3;
+  required int32 documentId = 4;
+  required DOCUMENTTYPE documentType = 5;
+  required string contentType = 6;
+}
