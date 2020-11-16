@@ -81,7 +81,18 @@ module.exports = function createWorker (opts) {
         project.varnishRequest({
           validateStatus: null,
           method: 'HEAD',
-          url,
+          url: url,
+          headers: {
+            Host: opts.frontendHostHeader,
+            Accept: 'application/json',
+            'User-Agent': 'bluewin-app'
+          }
+        }),
+        // Precache the bluewin inapp content
+        project.varnishRequest({
+          validateStatus: null,
+          method: 'HEAD',
+          url: url.replace(/.html$/, '.inapp.json'),
           headers: {
             Host: opts.frontendHostHeader,
             Accept: 'application/json',
