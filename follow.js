@@ -14,7 +14,7 @@ module.exports = function follow ({
 
       const filter = {text: '', values: []}
       if (projectId) {
-        if (!Array.isArray(projectId)) projectId = [projectId]
+        if (!Array.isArray(projectId)) projectId = `${projectId}`.split(/[ ,;]+/)
         if (projectId.length) {
           filter.text += `AND t.project_id IN ${placeholder(projectId)} `
           filter.values.push(...projectId)
@@ -22,7 +22,7 @@ module.exports = function follow ({
       }
 
       if (documentType) {
-        if (!Array.isArray(documentType)) documentType = [documentType]
+        if (!Array.isArray(documentType)) documentType = `${documentType}`.split(/[ ,;]+/)
         if (documentType.length) {
           filter.text += `AND t.document_type_handle IN ${placeholder(documentType)} `
           filter.values.push(...documentType)
@@ -30,8 +30,8 @@ module.exports = function follow ({
       }
 
       if (contentType) {
-        if (!Array.isArray(contentType)) contentType = [contentType]
-        if (documentType.length) {
+        if (!Array.isArray(contentType)) contentType = `${contentType}`.split(/[ ,;]+/)
+        if (contentType.length) {
           filter.text += `AND t.content_type_handle IN ${placeholder(contentType)} `
           filter.values.push(...contentType)
         }
@@ -60,7 +60,7 @@ module.exports = function follow ({
                 WHERE e.idx > ? AND e.ts > ?
                 ${filter.text}
                 ORDER BY e.idx ASC
-                LIMIT 1000
+                LIMIT 10
               `, after, sinceTimestamp, ...filter.values)
               if (value.length) {
                 after = value[value.length - 1].id

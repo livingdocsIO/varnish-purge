@@ -64,7 +64,7 @@ function getProjects () {
   return projects
 }
 
-async function start ({since, live}) {
+async function start (opts) {
   logger.warn('Starting process.')
   require('./exit-handlers')({
     logger,
@@ -87,10 +87,8 @@ async function start ({since, live}) {
   const database = await require('./database')(storagePath)
   const follow = require('./follow')
 
-  if (live === true) {
-    const stores = await Promise.all(projects.map(initializeProject))
-    for (const store of stores) store.start()
-  }
+  const stores = await Promise.all(projects.map(initializeProject))
+  for (const store of stores) store.start()
 
   async function initializeProject (project) {
     let stopped = false
@@ -98,20 +96,25 @@ async function start ({since, live}) {
 
     async function start () {
       project.log.info(`Starting purger for project ${project.name} with id ${project.projectId}`)
-      store.start()
+      // do not start the event sync during cli execution
+      if (opts.live) store.start()
 
-      const followOpts = {log: project.log, database, projectId: project.projectId, live, since}
+      const followOpts = {...opts, log: project.log, database, projectId: project.projectId}
       for await (const messages of follow(followOpts)) {
         if (stopped) break
-        for (const message of messages) {
+        loopmessages: for (const message of messages) {
           message._tries = 0
           message._project = project
-          if (live === false && message.event === 'unpublish') continue
+          // Do not trigger a ban of deleted documents when we're using the cli
+          if (opts.live === false && message.event === 'unpublish') continue loopmessages
           queue.push(message)
         }
-        await queue.drain(1000)
+        // Don't push too many messages into the queue, we'll have a maximum of 200 entries
+        await queue.drain(200)
       }
-      project.warn.info('Follower stopped')
+      // Wait for everything to finish and then stop the process
+      await queue.drain(0)
+      project.log.info('Follower stopped')
     }
 
     function stop () {
@@ -123,4 +126,15 @@ async function start ({since, live}) {
   }
 }
 
-start({live: true})
+// Either run the process using `node index.js` to start the regular process
+// or run
+//    node index.js --precache --duration=1w --documentType=page
+//    node index.js --precache --duration=1d --contentType=page,regular
+
+const args = require('yargs-parser')(process.argv.slice(2))
+if (args.precache) {
+  const time = require('ms')(args.duration || '1d')
+  start({...args, live: false, since: Date.now() - time})
+} else {
+  start({live: true})
+}
