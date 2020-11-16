@@ -26,6 +26,7 @@ module.exports = function fastAsyncQueue (opts) {
   let drainResolve
   let drainLowWaterMark
   let pausePromise
+  let pending = 0
   async function createWorker () {
     // eslint-disable-next-line no-unmodified-loop-condition
     while (!stopped) {
@@ -33,6 +34,7 @@ module.exports = function fastAsyncQueue (opts) {
 
       let job
       while ((job = queue.shift())) {
+        pending++
         if (pausePromise) await pausePromise
         if (stopped) return
 
@@ -43,8 +45,8 @@ module.exports = function fastAsyncQueue (opts) {
           if (catchFn) await catchFn.call(context, err, job)
           else throw err
         }
-
-        if (drainLowWaterMark !== undefined && queue.length <= drainLowWaterMark) {
+        pending--
+        if (drainLowWaterMark !== undefined && (queue.length + pending) <= drainLowWaterMark) {
           drainResolve()
           drainResolve = undefined
           drainLowWaterMark = undefined
@@ -89,7 +91,7 @@ module.exports = function fastAsyncQueue (opts) {
       return this
     },
     drain (lowWaterMark = 0) {
-      if (queue.length <= lowWaterMark) return
+      if ((queue.length + pending) <= lowWaterMark) return
       return new Promise((resolve) => {
         drainResolve = resolve
         drainLowWaterMark = lowWaterMark
