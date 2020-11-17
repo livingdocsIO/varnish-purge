@@ -78,17 +78,19 @@ module.exports = async function createStore (opts, database) {
     return count
   }
 
-  const cancelToken = Axios.CancelToken.source()
+  let cancelToken
   let delayTimeout
   async function start () {
     let after = await api.head
     while (!api.stopped) {
       try {
+        cancelToken = Axios.CancelToken.source()
         const res = await axios({
           cancelToken: cancelToken.token,
           method: 'GET',
           url: `/api/v1/publicationEvents?after=${after}&limit=1000`
         })
+        cancelToken = undefined
 
         if (Array.isArray(res.data) &&  res.data.length) {
           await appendMessages(res.data)
@@ -112,7 +114,7 @@ module.exports = async function createStore (opts, database) {
   function stop () {
     api.stopped = true
     clearTimeout(delayTimeout)
-    cancelToken.cancel()
+    cancelToken && cancelToken.cancel()
   }
 
   const api = {
