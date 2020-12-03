@@ -13,8 +13,8 @@ module.exports = async function setupDatabase (storage) {
   const write = await sqlite.open(opts)
   await write.migrate()
   await write.run([
+    'PRAGMA optimize;',
     'PRAGMA synchronous=OFF',
-    'PRAGMA count_changes=OFF',
     'PRAGMA temp_store=MEMORY',
     'PRAGMA cache_size=2000',
     'PRAGMA journal_mode=WAL'
