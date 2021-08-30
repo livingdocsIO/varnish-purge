@@ -13,15 +13,18 @@ module.exports = {
     async function refreshAdresses () {
       needsUpdate = false
 
-      let ttl
       do {
         try {
-          const addresses = await dns.resolve4(parsed.host, {ttl: true})
+          const addresses = await dns.lookup(parsed.host, {
+            family: 4,
+            all: true,
+            verbatim: true
+          })
+
           if (!addresses.length) {
             throw new Error(`Requested dns record doesn't respond with any A records.`)
           }
           instances = addresses.map((host) => {
-            ttl = host.ttl
             return `${parsed.protocol}//${host.address}${parsed.port ? `:${parsed.port}` : ''}${parsed.pathname}` // eslint-disable-line max-len
           })
         } catch (err) {
@@ -32,7 +35,7 @@ module.exports = {
         instancesPromiseResolve()
         instancesPromiseResolve = undefined
       }
-      setTimeout(() => { needsUpdate = true }, Math.max(ttl, 10) * 1000).unref()
+      setTimeout(() => { needsUpdate = true }, 5000).unref()
     }
 
     return async function request (opts) {
