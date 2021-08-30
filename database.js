@@ -25,7 +25,7 @@ module.exports = async function setupDatabase (storage) {
     await sqlite.open({...opts, mode: sqlite3.OPEN_READONLY})
 
   await read.run([
-    'PRAGMA cache_size=2000',
+    'PRAGMA synchronous=NORMAL',
     'PRAGMA journal_mode=WAL'
   ].join(';'))
 
