@@ -1,4 +1,4 @@
-FROM livingdocs/node:15
+FROM livingdocs/node:16
 ADD package*.json /app/
 ENV NODE_ENV=production
 RUN npm ci
