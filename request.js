@@ -15,7 +15,7 @@ module.exports = {
 
       do {
         try {
-          const addresses = await dns.lookup(parsed.host, {
+          const addresses = await dns.lookup(parsed.hostname, {
             family: 4,
             all: true,
             verbatim: true
